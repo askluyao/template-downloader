@@ -6,20 +6,20 @@ import urllib2
 import urlparse
 import re
 import logging
+import argparse
+import traceback
 from logging import Formatter
 from logging.handlers import TimedRotatingFileHandler
 
-_STORAGE_ROOT = '/home/yaolu/Desktop'
-
 _LOG_FORMAT = '%(asctime)s %(levelname)s %(module)s.%(funcName)s:%(lineno)d %(message)s'
 _LOG_FILE_NAME = 'template-downloader.log'
-_LOG_FILE_BASE = _STORAGE_ROOT
 _LOG_FILE_SUFFIX = '%Y%m%d'
+_LOG = None
 
 _PROCESSED_URLS = []
 
 
-def create_log():
+def create_log(log_dir):
     """
     Create a log handler
     """
@@ -29,14 +29,12 @@ def create_log():
 
     logging.basicConfig(format=_LOG_FORMAT)
     formatter = Formatter(_LOG_FORMAT)
-    handler = TimedRotatingFileHandler(_LOG_FILE_BASE + '/' + _LOG_FILE_NAME, 'midnight', 1, 365)
+    handler = TimedRotatingFileHandler(log_dir + '/' + _LOG_FILE_NAME, 'midnight', 1, 365)
     handler.setFormatter(formatter)
     handler.suffix = _LOG_FILE_SUFFIX
     log.addHandler(handler)
     log.setLevel(logging.INFO)
     return log
-
-_LOG = create_log()
 
 
 def http_get(url):
@@ -56,14 +54,13 @@ def http_get(url):
         return res
 
 
-def create_dir(pathname):
+def create_dir(the_dir):
     """
     Create a local directory by the parsed result of a HTTP URL, if not exists.
     """
-    complete_path = _STORAGE_ROOT + pathname
-    if not os.path.isdir(complete_path):
-        _LOG.info('Creating new directory %s ' % complete_path)
-        os.makedirs(complete_path)
+    if not os.path.isdir(the_dir):
+        _LOG.info('Creating new directory %s ' % the_dir)
+        os.makedirs(the_dir)
 
 
 def get_filename(url):
@@ -105,16 +102,16 @@ def get_root_url(url):
     return url
 
 
-def save_res_file(url, filename=None):
+def save_res_file(url, root_dir, filename=None):
     """
     Saving a static resource file from a HTTP URL.
     """
     final_filename = filename if filename else get_filename(url)
 
     pathname = get_pathname(url)
-    create_dir(pathname)
+    create_dir(root_dir + pathname)
 
-    filepath = _STORAGE_ROOT + pathname + '/' + final_filename
+    filepath = root_dir + pathname + '/' + final_filename
     if not os.path.exists(filepath):
         _LOG.info('Downloading ' + url)
 
@@ -164,7 +161,7 @@ def get_res_urls(html_content, root_url, suffix_list):
     return urls
 
 
-def process_html_page(url, custom_filename=None):
+def process_html_page(url, output_dir, custom_filename=None):
     """
     Process a single HTML page.
     """
@@ -181,25 +178,41 @@ def process_html_page(url, custom_filename=None):
         return
 
     pathname = get_pathname(url)
-    create_dir(pathname)
+    create_dir(output_dir + pathname)
 
     filename = custom_filename if custom_filename is not None else get_filename(url)
-    save_res_file(url, filename)
+    save_res_file(url, output_dir, filename)
 
     root_url = get_root_url(url)
 
     _LOG.info('Saving static resources...')
     res_urls = get_res_urls(html_content, root_url, ['.js', '.css', '.jpeg', '.jpg', '.png', '.ico'])
     for res_url in res_urls:
-        save_res_file(res_url)
+        save_res_file(res_url, output_dir)
 
     html_urls = get_res_urls(html_content, root_url, ['.html', '.htm'])
     _LOG.info('Preparing to process %d URLs from current page...' % len(html_urls))
 
     for html_url in html_urls:
-        process_html_page(html_url)
+        process_html_page(html_url, output_dir)
 
 
-if __name__ == '__main__':
-    index_url = 'http://getbootstrapadmin.com/remark/topbar/'
-    process_html_page(index_url, 'index.html')
+def main():
+    parser = argparse.ArgumentParser(description='Template Downloader')
+    parser.add_argument('--url', required=True, help=u'网站入口')
+    parser.add_argument('--outputDir', required=True, help=u'存储位置')
+    args = parser.parse_args()
+
+    global _LOG
+    _LOG = create_log(args.outputDir)
+
+    try:
+        process_html_page(args.url, args.outputDir, 'index.html')
+    except Exception as e:
+        _LOG.exception('Failed to run competitor product matcher: ' + str(e))
+        traceback.print_exc()
+        exit(1)
+
+
+if __name__ == "__main__":
+    main()
